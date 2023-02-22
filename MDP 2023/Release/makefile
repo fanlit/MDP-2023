@@ -68,8 +68,8 @@ all: main-build
 main-build: MDP\ 2023.elf secondary-outputs
 
 # Tool invocations
-MDP\ 2023.elf MDP\ 2023.map: $(OBJS) $(USER_OBJS) C:\Users\fanli\STM32CubeIDE\workspace_1.11.0\MDP\ 2023\STM32F407VETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "MDP 2023.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\fanli\STM32CubeIDE\workspace_1.11.0\MDP 2023\STM32F407VETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="MDP 2023.map" -Wl,--gc-sections -static -u _printf_float --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+MDP\ 2023.elf MDP\ 2023.map: $(OBJS) $(USER_OBJS) C:\Users\fanli\git\MDP-2023\MDP\ 2023\STM32F407VETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "MDP 2023.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\fanli\git\MDP-2023\MDP 2023\STM32F407VETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="MDP 2023.map" -Wl,--gc-sections -static -u _printf_float --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

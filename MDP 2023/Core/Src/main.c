@@ -40,8 +40,8 @@
 #define SERVO_LEFT_MAX 90
 #define SERVO_STRAIGHT 150
 #define INTEGRAL_MAX 1000000
-#define GREATER_TURN_PWM 1000
-#define LESSER_TURN_PWM 700
+#define GREATER_TURN_PWM 1500
+#define LESSER_TURN_PWM 1200
 
 // for ultrasonic sensor
 #define TRIG_PIN GPIO_PIN_13
@@ -280,7 +280,6 @@ void HAL_GPIO_EXTI_Callback( uint16_t GPIO_Pin ) {
 //	__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC1);
 //}
 
-// TODO: 07/02/2023 - Test Gyro Implementation
 void readByte(uint8_t addr, uint8_t* data){
 	buff[0] = addr;
 	HAL_I2C_Master_Transmit(&hi2c1, ICMAddr<<1, buff, 1, 10);
@@ -485,38 +484,6 @@ int ServoCorrection(void){
 	return correction;
 }
 
-//void ManeuverObstacle(){
-//	//{c0045, d0045, a0400, e0090}
-//	// turn left 45 deg
-//	received = 1;
-//	start = 1;
-//	targetAngle = totalAngle + 45;
-//	cmd = 'c';
-//	UART_Command_RX_task(1);
-//
-//	// turn right 45 deg
-//	received = 1;
-//	start = 1;
-//	targetAngle = totalAngle - 45;
-//	cmd = 'd';
-//	UART_Command_RX_task(1);
-//
-//	// move forward 40cm
-//	received = 1;
-//	start = 1;
-//	cmd = 'a';
-//	targetCount = ((400 - 30)/207.345) * 1560;
-//	UART_Command_RX_task(1);
-//
-//	// reverse left 90 deg
-//	received = 1;
-//	start = 1;
-//	cmd = 'e';
-//	targetAngle = totalAngle - 90;
-//	UART_Command_RX_task(1);
-//}
-
-//}
 /* USER CODE END 0 */
 
 /**
@@ -1212,7 +1179,8 @@ void StartDefaultTask(void *argument)
   for(;;)
   {
 //	  sprintf(oledRow2, "Rd:%3d Ld:%3d", (int)right_sensor_int, (int)left_sensor_int);
-	  sprintf(oledRow3, "Tang : %5d", (long)totalAngle);
+	  sprintf(oledRow4, "Tang : %5d", (long)totalAngle);
+	  sprintf(oledRow3, "Rd : %3d", (int)right_sensor_int);
 //	  sprintf(oledRow4, "in: %5.3f", input);
 //	  sprintf(oledRow4, "Sensor: %2.3f", Distance);
 	  osDelay(1);
@@ -1231,7 +1199,7 @@ void DCMotor_task(void *argument)
 {
   /* USER CODE BEGIN DCMotor_task */
 	StartPMWVal();
-	int angleOffset = 2;
+	int angleOffset = 7;
 	while(1)
 	{
 		switch (dir)
@@ -1279,21 +1247,18 @@ void DCMotor_task(void *argument)
 				break;
 			default:
 				SetPinStop();
+				ResetValues();
 		}
 		// Reverse if sensor detects car is <= 100mm (10cm)
-		if(cmd == 'a' && right_sensor_int <= 90){
-			isDone = -1;
-			dir = 0;
+		if(cmd == 'a' && right_sensor_int <= 100){
+//			cmd = '-';
+			sprintf(oledRow4, "Obstacle!");
+			ResetValues();
+			TurnStraighten();
+			targetCount = ((190 - 30)/207.345) * 1560;
+			turning = 0;
+			dir = -1;
 		}
-//		if(cmd = 'a' && right_sensor_int <= 100){
-//			isDone = -1;
-//			SendFeedBack(isDone);
-//			ResetValues();
-//			TurnStraighten();
-//			targetCount = ((90 - 30)/207.345) * 1560;
-//			turning = 0;
-//			dir = -1;
-//		}
 	    if(turning == 1)
 	    {
 		   if((cmd == 'c' || cmd == 'f') && totalAngle >= targetAngle - angleOffset)
@@ -1331,11 +1296,11 @@ void RefreshOLED_task(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	OLED_ShowString(0,0,oledRow0);
+//	OLED_ShowString(0,0,oledRow0);
 //	OLED_ShowString(0,10,oledRow1);
 //	OLED_ShowString(0,20,oledRow2);
 	OLED_ShowString(0,30,oledRow3);
-//	OLED_ShowString(0,40,oledRow4);
+	OLED_ShowString(0,40,oledRow4);
 	OLED_ShowString(0,50,oledRow5);
 	OLED_Refresh_Gram();
 	osDelay(10);
@@ -1542,7 +1507,7 @@ void Gyro(void *argument)
 			   readByte(0x37, val);
 			   angularSpeed = (val[0] << 8) | val[1];
 
-			   if(angularSpeed >= -4 && angularSpeed <= 4)
+			   if((angularSpeed >= -4 && angularSpeed <= 4) || (dir == 0 || dir == -2))
 				   totalAngle += 0;
 			   else
 				   totalAngle += (double)(angularSpeed + offset)*((currTick - prevTick)/16400.0);
