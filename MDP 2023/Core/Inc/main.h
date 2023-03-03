@@ -67,10 +67,6 @@ void Error_Handler(void);
 #define AIN2_GPIO_Port GPIOA
 #define AIN1_Pin GPIO_PIN_3
 #define AIN1_GPIO_Port GPIOA
-#define BIN1_Pin GPIO_PIN_4
-#define BIN1_GPIO_Port GPIOA
-#define BIN2_Pin GPIO_PIN_5
-#define BIN2_GPIO_Port GPIOA
 #define OLED_RST_Pin GPIO_PIN_7
 #define OLED_RST_GPIO_Port GPIOE
 #define OLED_DC_Pin GPIO_PIN_8
@@ -86,8 +82,6 @@ void Error_Handler(void);
 #define USER_PB_EXTI_IRQn EXTI9_5_IRQn
 #define PWMA_Pin GPIO_PIN_6
 #define PWMA_GPIO_Port GPIOC
-#define PWMB_Pin GPIO_PIN_7
-#define PWMB_GPIO_Port GPIOC
 #define PWMD_Pin GPIO_PIN_9
 #define PWMD_GPIO_Port GPIOC
 #define TXD_Pin GPIO_PIN_10

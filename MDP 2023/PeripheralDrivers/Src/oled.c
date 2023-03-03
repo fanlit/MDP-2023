@@ -4,7 +4,7 @@
 
 #include "../../PeripheralDrivers/Inc/oledfont.h"
 
-uint8_t OLED_GRAM[128][8];	 
+uint8_t OLED_GRAM[128][8];
 void OLED_Refresh_Gram(void)
 {
 	uint8_t i,n;		    
