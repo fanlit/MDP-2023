@@ -37,7 +37,7 @@
 #define CNT_ERROR_TOLERANCE 10
 #define PWM_MAX 1500
 #define SERVO_RIGHT_MAX 230
-#define SERVO_LEFT_MAX 90
+#define SERVO_LEFT_MAX 100
 #define SERVO_STRAIGHT 150
 #define INTEGRAL_MAX 1000000
 #define GREATER_TURN_PWM 1500
@@ -117,12 +117,12 @@ const osThreadAttr_t Gyrohandle_attributes = {
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for IRsensortask */
-osThreadId_t IRsensortaskHandle;
-const osThreadAttr_t IRsensortask_attributes = {
-  .name = "IRsensortask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityRealtime,
-};
+//osThreadId_t IRsensortaskHandle;
+//const osThreadAttr_t IRsensortask_attributes = {
+//  .name = "IRsensortask",
+//  .stack_size = 128 * 4,
+//  .priority = (osPriority_t) osPriorityRealtime,
+//};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -145,7 +145,7 @@ void EncoderMotorA_task(void *argument);
 void EncoderMotorB_task(void *argument);
 void UART_Command_RX_task(void *argument);
 void Gyro(void *argument);
-void IRsensor(void *argument);
+//void IRsensor(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -155,7 +155,9 @@ void IRsensor(void *argument);
 /* USER CODE BEGIN 0 */
 
 // New commands from Rpi board will be received and stored in this buffer
-uint8_t aRxBuffer[50];
+//ICM20948 imu;
+//uint8_t aRxBuffer[1];
+uint8_t aRxBuffer[5];
 uint8_t oledRow0[20];
 uint8_t oledRow1[20];
 uint8_t oledRow2[20];
@@ -201,11 +203,10 @@ uint32_t LPF_SUM_right = 0;
 uint32_t LPF_SUM_left = 0;
 uint32_t counter = 0;
 
-int8_t start = 0;
-int8_t isDone = 0;
+//int8_t start = 0;
+//int8_t isDone = 0;
 
 void SendFeedBack(int done){
-	ResetValues();
 	if(done == 1){
 		HAL_UART_Transmit(&huart3, "1\n", 2, 0xFFFF);
 	}
@@ -214,18 +215,18 @@ void SendFeedBack(int done){
 	}
 }
 
-void HAL_GPIO_EXTI_Callback( uint16_t GPIO_Pin ) {
-
-	if ( GPIO_Pin == USER_PB_Pin) {
-		// toggle LED
-		if (start == 0){
-			HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_10);
-			start = 1;
-		}
-		else
-			start = 0;
- 	    }
-}
+//void HAL_GPIO_EXTI_Callback( uint16_t GPIO_Pin ) {
+//
+//	if ( GPIO_Pin == USER_PB_Pin) {
+//		// toggle LED
+//		if (start == 0){
+//			HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_10);
+//			start = 1;
+//		}
+//		else
+//			start = 0;
+// 	    }
+//}
 
 //void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 //{
@@ -377,7 +378,7 @@ void ResetValues(void)
 	pwmValA = 0;
 	pwmValB = 0;
 	totalAngle = 0;
-	isDone = 0;
+//	isDone = 0;
 	__HAL_TIM_SET_COUNTER(&htim2, 0);
 	__HAL_TIM_SET_COUNTER(&htim5, 0);
 }
@@ -419,7 +420,7 @@ int CalcPIDA_Dist(void){
 	}
 	else
 	{
-		isDone = 1;
+//		isDone = 1;
 		dir = 0;
 	}
 	return 0;
@@ -575,7 +576,7 @@ int main(void)
   GyrohandleHandle = osThreadNew(Gyro, NULL, &Gyrohandle_attributes);
 
   /* creation of IRsensortask */
-  IRsensortaskHandle = osThreadNew(IRsensor, NULL, &IRsensortask_attributes);
+//  IRsensortaskHandle = osThreadNew(IRsensor, NULL, &IRsensortask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -1031,7 +1032,6 @@ static void MX_TIM8_Init(void)
   /* USER CODE BEGIN TIM8_Init 2 */
 
   /* USER CODE END TIM8_Init 2 */
-
 }
 
 /**
@@ -1102,7 +1102,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : AIN2_Pin AIN1_Pin */
+  /*Configure GPIO pins : AIN2_Pin AIN1_Pin BIN1_Pin BIN2_Pin */
   GPIO_InitStruct.Pin = AIN2_Pin|AIN1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -1141,28 +1141,22 @@ static void MX_GPIO_Init(void)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	UNUSED(huart);
-	sprintf(oledRow3, "recvd = %d", received);
-	osDelay(500);
-	if(received == 0)
+	cmd = (char) aRxBuffer[0];
+	input = (int)(aRxBuffer[1] - '0')*1000 + (int)((char)aRxBuffer[2] - '0')*100 +
+							(int)(aRxBuffer[3] - '0')*10 + (int)((char)aRxBuffer[4] - '0');
+	if(cmd == 'a' || cmd == 'b')
 	{
-		cmd = (char) aRxBuffer[0];
-		input = (int)(aRxBuffer[1] - '0')*1000 + (int)((char)aRxBuffer[2] - '0')*100 +
-								(int)(aRxBuffer[3] - '0')*10 + (int)((char)aRxBuffer[4] - '0');
-		if(cmd == 'a' || cmd == 'b')
-		{
-			targetCount = ((input - 20)/207.345) * 1560;
-		}
-		else if(cmd == 'c' || cmd == 'f') //left = +ve deg
-		{
-			targetAngle = totalAngle + input;
-		}
-		else if (cmd == 'd' || cmd == 'e') // right = -ve deg
-		{
-			targetAngle = totalAngle - input;
-		}
-		received = 1;
-
+		targetCount = ((input - 20)/207.345) * 1560;
 	}
+	else if(cmd == 'c' || cmd == 'f') //left = +ve deg
+	{
+		targetAngle = totalAngle + input;
+	}
+	else if (cmd == 'd' || cmd == 'e') // right = -ve deg
+	{
+		targetAngle = totalAngle - input;
+	}
+	received = 1;
 	HAL_UART_Receive_IT(&huart3, (uint8_t *)aRxBuffer, 5);
 }
 
@@ -1184,7 +1178,7 @@ void StartDefaultTask(void *argument)
 //	  sprintf(oledRow2, "Rd:%3d Ld:%3d", (int)right_sensor_int, (int)left_sensor_int);
 	  sprintf(oledRow4, "Tang : %5d", (long)totalAngle);
 //	  sprintf(oledRow3, "Rd : %3d", (int)right_sensor_int);
-//	  sprintf(oledRow4, "in: %5.3f", input);
+	  sprintf(oledRow3, "recvd: %d", received);
 //	  sprintf(oledRow4, "Sensor: %2.3f", Distance);
 	  osDelay(1);
   }
@@ -1202,7 +1196,7 @@ void DCMotor_task(void *argument)
 {
   /* USER CODE BEGIN DCMotor_task */
 	StartPMWVal();
-	int angleOffset = 7;
+	int angleOffset = 5;
 	while(1)
 	{
 		switch (dir)
@@ -1225,10 +1219,11 @@ void DCMotor_task(void *argument)
 				break;
 
 			case 0:
-				// send completed flag back to RPi, ready to execute new command
+				// send completed cmd back to RPi, ready to execute new command
 				SetPinStop();
 				osDelay(1000);
-				SendFeedBack(isDone);
+				SendFeedBack(1);
+				ResetValues();
 				dir = -2; // should go to default
 				break;
 
@@ -1253,31 +1248,33 @@ void DCMotor_task(void *argument)
 		}
 		// Reverse if sensor detects car is <= 100mm (10cm)
 //		if(cmd == 'a' && right_sensor_int <= 10){
-//			cmd = '-';
-//			sprintf(oledRow4, "Obstacle!");
-//			ResetValues();
-//			TurnStraighten();
-//			targetCount = ((190 - 30)/207.345) * 1560;
-//			turning = 0;
-//			dir = -1;
-//			cmd = '-';
-//			continue;
+////			cmd = '-';
+////			sprintf(oledRow4, "Obstacle!");
+////			ResetValues();
+////			TurnStraighten();
+////			targetCount = ((190 - 30)/207.345) * 1560;
+////			turning = 0;
+////			dir = -1;
+////			cmd = '-';
+////			continue;
 //		}
 	    if(turning == 1)
 	    {
 		   if((cmd == 'c' || cmd == 'f') && totalAngle >= targetAngle - angleOffset)
 		   {
-			   isDone = 1;
-			   dir = 0;
 			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
 			   turning = 0;
+//			   isDone = 1;
+			   totalAngle = 0;
+			   dir = 0;
 		   }
 		   else if((cmd == 'd' || cmd == 'e') && totalAngle <= targetAngle + angleOffset)
 		   {
-			   isDone = 1;
-			   dir = 0;
 			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
 			   turning = 0;
+//			   isDone = 1;
+			   totalAngle = 0;
+			   dir = 0;
 		   }
 	    }
 		__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_4, pwmValB);
@@ -1356,6 +1353,7 @@ void EncoderMotorA_task(void *argument)
 	  }
 	  if(turning == 0 && (dir == 1 || dir == -1))
 			pwmValA = CalcPIDA_Dist();
+	  //TODO: For turning, give the different distance measurements for wheelA @ diff angles
   }
   /* USER CODE END EncoderMotorA_task */
 }
@@ -1402,6 +1400,7 @@ void EncoderMotorB_task(void *argument)
 	  }
 	  if(turning == 0 && (dir == 1 || dir == -1))
 			pwmValB = CalcPIDB_Dist();
+	  //TODO: For turning, give the different distance measurements for wheelB @ diff angles
   }
   /* USER CODE END EncoderMotorB_task */
 }
@@ -1430,18 +1429,17 @@ void UART_Command_RX_task(void *argument)
 
 	  if(received == 1)
 	  {
+		  received = 0;
 		  switch(cmd)
 		  {
 			  case 'a': // move Forward
 				  TurnStraighten();
-				  ResetValues();
 				  osDelay(100);
 				  turning = 0;
 				  dir = 1;
 				  break;
 			  case 'b': // move Backward
 				  TurnStraighten();
-				  ResetValues();
 				  osDelay(100);
 				  turning = 0;
 				  dir = -1;
@@ -1472,16 +1470,12 @@ void UART_Command_RX_task(void *argument)
 				  break;
 			  case 'g':
 				  TurnStraighten();
-				  ResetValues();
-				  isDone = 1;
 				  dir = 0;
 				  break;
 			  default:
-				  cmd = 'X';
+				  cmd = '-';
 				  osDelay(10);
 		  }
-		  received = 0;
-		  start = 0;
 	  }
 	  sprintf(oledRow5, "cmd: %s\0", aRxBuffer);
 //	  HAL_Delay(500);
@@ -1511,7 +1505,6 @@ void Gyro(void *argument)
 		   {
 			   readByte(0x37, val);
 			   angularSpeed = (val[0] << 8) | val[1];
-
 
 			   if((angularSpeed >= -4 && angularSpeed <= 4) || (dir == 0 || dir == -2))
 				   totalAngle += 0;
@@ -1561,7 +1554,6 @@ void IRsensor(void *argument)
 	  	right_sensor_int = (0.0000074673 *pow(right_sensor,2))-(0.042958* right_sensor)+70.9308;
 	  	left_sensor_int = (0.0000074673 *pow(left_sensor,2))-(0.042958* left_sensor)+70.9308;
 
-	  	//
 	  	LPF_SUM_right = 0;
 	  	LPF_SUM_left = 0;
 	  	counter = 0;
