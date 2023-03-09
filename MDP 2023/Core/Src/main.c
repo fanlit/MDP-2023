@@ -117,12 +117,12 @@ const osThreadAttr_t Gyrohandle_attributes = {
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for IRsensortask */
-//osThreadId_t IRsensortaskHandle;
-//const osThreadAttr_t IRsensortask_attributes = {
-//  .name = "IRsensortask",
-//  .stack_size = 128 * 4,
-//  .priority = (osPriority_t) osPriorityRealtime,
-//};
+osThreadId_t IRsensortaskHandle;
+const osThreadAttr_t IRsensortask_attributes = {
+  .name = "IRsensortask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -145,7 +145,7 @@ void EncoderMotorA_task(void *argument);
 void EncoderMotorB_task(void *argument);
 void UART_Command_RX_task(void *argument);
 void Gyro(void *argument);
-//void IRsensor(void *argument);
+void IRsensor(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -153,7 +153,6 @@ void Gyro(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
 // New commands from Rpi board will be received and stored in this buffer
 //ICM20948 imu;
 //uint8_t aRxBuffer[1];
@@ -203,8 +202,8 @@ uint32_t LPF_SUM_right = 0;
 uint32_t LPF_SUM_left = 0;
 uint32_t counter = 0;
 
-//int8_t start = 0;
-//int8_t isDone = 0;
+int8_t start = 0;
+int8_t isDone = 0;
 
 void SendFeedBack(int done){
 	if(done == 1){
@@ -555,13 +554,13 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+//  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of DCMotor */
   DCMotorHandle = osThreadNew(DCMotor_task, NULL, &DCMotor_attributes);
 
   /* creation of RefreshOLED */
-  RefreshOLEDHandle = osThreadNew(RefreshOLED_task, NULL, &RefreshOLED_attributes);
+//  RefreshOLEDHandle = osThreadNew(RefreshOLED_task, NULL, &RefreshOLED_attributes);
 
   /* creation of EncoderMotorA */
   EncoderMotorAHandle = osThreadNew(EncoderMotorA_task, NULL, &EncoderMotorA_attributes);
@@ -1032,6 +1031,7 @@ static void MX_TIM8_Init(void)
   /* USER CODE BEGIN TIM8_Init 2 */
 
   /* USER CODE END TIM8_Init 2 */
+
 }
 
 /**
@@ -1102,7 +1102,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : AIN2_Pin AIN1_Pin BIN1_Pin BIN2_Pin */
+  /*Configure GPIO pins : AIN2_Pin AIN1_Pin */
   GPIO_InitStruct.Pin = AIN2_Pin|AIN1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -1143,10 +1143,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	UNUSED(huart);
 	cmd = (char) aRxBuffer[0];
 	input = (int)(aRxBuffer[1] - '0')*1000 + (int)((char)aRxBuffer[2] - '0')*100 +
-							(int)(aRxBuffer[3] - '0')*10 + (int)((char)aRxBuffer[4] - '0');
+			(int)(aRxBuffer[3] - '0')*10 + (int)((char)aRxBuffer[4] - '0');
+	targetCount = 0.0;
 	if(cmd == 'a' || cmd == 'b')
 	{
-		targetCount = ((input - 20)/207.345) * 1560;
+		targetCount = ((input - 35)/207.345) * 1560;
 	}
 	else if(cmd == 'c' || cmd == 'f') //left = +ve deg
 	{
@@ -1175,11 +1176,14 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
+	  sprintf(oledRow1, "eCnt: %5d", __HAL_TIM_GET_COUNTER(&htim2));
 //	  sprintf(oledRow2, "Rd:%3d Ld:%3d", (int)right_sensor_int, (int)left_sensor_int);
 	  sprintf(oledRow4, "Tang : %5d", (long)totalAngle);
 //	  sprintf(oledRow3, "Rd : %3d", (int)right_sensor_int);
 	  sprintf(oledRow3, "recvd: %d", received);
+	  sprintf(oledRow2, "cnt: %5d", (long)targetCount);
 //	  sprintf(oledRow4, "Sensor: %2.3f", Distance);
+//	  sprintf(oledRow5, "cnt: %5d", (long)targetCount);
 	  osDelay(1);
   }
   /* USER CODE END 5 */
@@ -1196,12 +1200,14 @@ void DCMotor_task(void *argument)
 {
   /* USER CODE BEGIN DCMotor_task */
 	StartPMWVal();
-	int angleOffset = 5;
+	int angleOffset = 7;
 	while(1)
 	{
 		switch (dir)
 		{
 			case 1:
+//				__HAL_TIM_SET_COUNTER(&htim2, 0);
+//				__HAL_TIM_SET_COUNTER(&htim5, 0);
 				SetPinForward();
 				if(turning == 0)
 					htim1.Instance -> CCR4 = ServoCorrection();
@@ -1228,6 +1234,8 @@ void DCMotor_task(void *argument)
 				break;
 
 			case -1:
+//				__HAL_TIM_SET_COUNTER(&htim2, 0);
+//				__HAL_TIM_SET_COUNTER(&htim5, 0);
 				SetPinReverse();
 				if(turning == 0)
 					htim1.Instance -> CCR4 = ServoCorrection();
@@ -1262,19 +1270,25 @@ void DCMotor_task(void *argument)
 	    {
 		   if((cmd == 'c' || cmd == 'f') && totalAngle >= targetAngle - angleOffset)
 		   {
-			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
+			   SetPinStop();
 			   turning = 0;
-//			   isDone = 1;
-			   totalAngle = 0;
-			   dir = 0;
+			   osDelay(500);
+			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
+			   ResetValues();
+			   osDelay(500);
+			   targetCount = ((40 - 35)/207.345) * 1560;
+			   dir = -1;
 		   }
 		   else if((cmd == 'd' || cmd == 'e') && totalAngle <= targetAngle + angleOffset)
 		   {
-			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
+			   SetPinStop();
 			   turning = 0;
-//			   isDone = 1;
-			   totalAngle = 0;
-			   dir = 0;
+			   osDelay(500);
+			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
+			   ResetValues();
+			   osDelay(500);
+			   targetCount = ((40 - 35)/207.345) * 1560;
+			   dir = -1;
 		   }
 	    }
 		__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_4, pwmValB);
@@ -1298,8 +1312,8 @@ void RefreshOLED_task(void *argument)
   for(;;)
   {
 //	OLED_ShowString(0,0,oledRow0);
-//	OLED_ShowString(0,10,oledRow1);
-//	OLED_ShowString(0,20,oledRow2);
+	OLED_ShowString(0,10,oledRow1);
+	OLED_ShowString(0,20,oledRow2);
 	OLED_ShowString(0,30,oledRow3);
 	OLED_ShowString(0,40,oledRow4);
 	OLED_ShowString(0,50,oledRow5);
@@ -1353,7 +1367,6 @@ void EncoderMotorA_task(void *argument)
 	  }
 	  if(turning == 0 && (dir == 1 || dir == -1))
 			pwmValA = CalcPIDA_Dist();
-	  //TODO: For turning, give the different distance measurements for wheelA @ diff angles
   }
   /* USER CODE END EncoderMotorA_task */
 }
@@ -1400,7 +1413,6 @@ void EncoderMotorB_task(void *argument)
 	  }
 	  if(turning == 0 && (dir == 1 || dir == -1))
 			pwmValB = CalcPIDB_Dist();
-	  //TODO: For turning, give the different distance measurements for wheelB @ diff angles
   }
   /* USER CODE END EncoderMotorB_task */
 }
@@ -1477,6 +1489,8 @@ void UART_Command_RX_task(void *argument)
 				  osDelay(10);
 		  }
 	  }
+//	  sprintf(oledRow5, "cnt: %5d\0", (long)targetCount);
+//	  sprintf(oledRow5, "cmd: %s", cmd);
 	  sprintf(oledRow5, "cmd: %s\0", aRxBuffer);
 //	  HAL_Delay(500);
   }
