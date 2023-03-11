@@ -35,13 +35,13 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define CNT_ERROR_TOLERANCE 10
-#define PWM_MAX 1500
+#define PWM_MAX 3000 //1500
 #define SERVO_RIGHT_MAX 230
 #define SERVO_LEFT_MAX 100
 #define SERVO_STRAIGHT 150
 #define INTEGRAL_MAX 1000000
-#define GREATER_TURN_PWM 1500
-#define LESSER_TURN_PWM 1200
+#define GREATER_TURN_PWM 1500 // 1500
+#define LESSER_TURN_PWM 1200 //1200
 
 // for ultrasonic sensor
 #define TRIG_PIN GPIO_PIN_13
@@ -62,6 +62,7 @@ I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
 TIM_HandleTypeDef htim8;
 
@@ -72,7 +73,7 @@ osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for DCMotor */
 osThreadId_t DCMotorHandle;
@@ -117,9 +118,16 @@ const osThreadAttr_t Gyrohandle_attributes = {
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for IRsensortask */
-osThreadId_t IRsensortaskHandle;
-const osThreadAttr_t IRsensortask_attributes = {
-  .name = "IRsensortask",
+//osThreadId_t IRsensortaskHandle;
+//const osThreadAttr_t IRsensortask_attributes = {
+//  .name = "IRsensortask",
+//  .stack_size = 128 * 4,
+//  .priority = (osPriority_t) osPriorityLow,
+//};
+/* Definitions for UltrasonicTask */
+osThreadId_t UltrasonicTaskHandle;
+const osThreadAttr_t UltrasonicTask_attributes = {
+  .name = "UltrasonicTask",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
@@ -138,6 +146,7 @@ static void MX_I2C1_Init(void);
 static void MX_TIM5_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_ADC3_Init(void);
+static void MX_TIM4_Init(void);
 void StartDefaultTask(void *argument);
 void DCMotor_task(void *argument);
 void RefreshOLED_task(void *argument);
@@ -146,6 +155,7 @@ void EncoderMotorB_task(void *argument);
 void UART_Command_RX_task(void *argument);
 void Gyro(void *argument);
 void IRsensor(void *argument);
+void Ultrasonic(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -153,6 +163,7 @@ void IRsensor(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 // New commands from Rpi board will be received and stored in this buffer
 //ICM20948 imu;
 //uint8_t aRxBuffer[1];
@@ -192,15 +203,15 @@ double targetAngle = 0;
 
 //for IR sensor
 // TODO only one sensor is in use right now.
-uint32_t right_adc;
-uint32_t left_adc;
-double right_sensor;
-double left_sensor;
-uint32_t right_sensor_int;
-uint32_t left_sensor_int;
-uint32_t LPF_SUM_right = 0;
-uint32_t LPF_SUM_left = 0;
-uint32_t counter = 0;
+//uint32_t right_adc;
+//uint32_t left_adc;
+//double right_sensor;
+//double left_sensor;
+//uint32_t right_sensor_int;
+//uint32_t left_sensor_int;
+//uint32_t LPF_SUM_right = 0;
+//uint32_t LPF_SUM_left = 0;
+//uint32_t counter = 0;
 
 int8_t start = 0;
 int8_t isDone = 0;
@@ -227,57 +238,64 @@ void SendFeedBack(int done){
 // 	    }
 //}
 
-//void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
-//{
-//	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)  // if the interrupt source is channel1
-//	{
-//		if (Is_First_Captured==0) // if the first value is not captured
-//		{
-//			IC_Val1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1); // read the first value
-//			Is_First_Captured = 1;  // set the first captured as true
-//			// Now change the polarity to falling edge
-//			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
-//		}
-//
-//		else if (Is_First_Captured==1)   // if the first is already captured
-//		{
-//			IC_Val2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);  // read second value
-//			__HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter
-//
-//			if (IC_Val2 > IC_Val1)
-//			{
-//				Difference = IC_Val2-IC_Val1;
-//			}
-//
-//			else if (IC_Val1 > IC_Val2)
-//			{
-//				Difference = (0xffff - IC_Val1) + IC_Val2;
-//			}
-//
-//			Distance = Difference * .034/2;
-//			Is_First_Captured = 0; // set it back to false
-//
-//			// set polarity to rising edge
-//			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
-//			__HAL_TIM_DISABLE_IT(&htim4, TIM_IT_CC1);
-//		}
-//	}
-//}
-//
-//void delay (uint16_t time)
-//{
-//	__HAL_TIM_SET_COUNTER(&htim4, 0);
-//	while(__HAL_TIM_GET_COUNTER (&htim4) < time);
-//}
-//
-//void HCSR04_Read (void)
-//{
-//	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
-//	delay(10);  // wait for 10 us
-//	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
-//
-//	__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC1);
-//}
+//for ultrasonic sensor
+uint32_t IC_Val1 = 0;
+uint32_t IC_Val2 = 0;
+uint32_t Difference = 0;
+uint8_t Is_First_Captured = 0;  // is the first value captured ?
+uint8_t Distance  = 0;
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)  // if the interrupt source is channel1
+	{
+		if (Is_First_Captured==0) // if the first value is not captured
+		{
+			IC_Val1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1); // read the first value
+			Is_First_Captured = 1;  // set the first captured as true
+			// Now change the polarity to falling edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
+		}
+
+		else if (Is_First_Captured==1)   // if the first is already captured
+		{
+			IC_Val2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);  // read second value
+			__HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter
+
+			if (IC_Val2 > IC_Val1)
+			{
+				Difference = IC_Val2-IC_Val1;
+			}
+
+			else if (IC_Val1 > IC_Val2)
+			{
+				Difference = (0xffff - IC_Val1) + IC_Val2;
+			}
+
+			Distance = Difference * .034/2;
+			Is_First_Captured = 0; // set it back to false
+
+			// set polarity to rising edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
+			__HAL_TIM_DISABLE_IT(&htim4, TIM_IT_CC1);
+		}
+	}
+}
+
+void delay (uint16_t time)
+{
+	__HAL_TIM_SET_COUNTER(&htim4, 0);
+	while(__HAL_TIM_GET_COUNTER (&htim4) < time);
+}
+
+void HCSR04_Read (void)
+{
+	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+	delay(10);  // wait for 10 us
+	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
+
+	__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC1);
+}
 
 void readByte(uint8_t addr, uint8_t* data){
 	buff[0] = addr;
@@ -467,7 +485,7 @@ int CalcPIDB_Dist(void){
 }
 
 int ServoCorrection(void){
-	int corrMultiplier = 6;
+	double corrMultiplier = 6;
 
 	if(dir == 1)
 		correction = (double)(SERVO_STRAIGHT + totalAngle*corrMultiplier);
@@ -521,6 +539,7 @@ int main(void)
   MX_TIM5_Init();
   MX_ADC2_Init();
   MX_ADC3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
   HAL_UART_Receive_IT(&huart3, (uint8_t *)aRxBuffer, 5);
@@ -528,7 +547,7 @@ int main(void)
   millisOldB = HAL_GetTick();
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   __HAL_TIM_SET_COUNTER(&htim5, 0);
-//  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1); // for ultra sonic sensor
+  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1); // for ultrasonic sensor
   HAL_Delay(1000);
 //  IMU_Initialise(&imu, &hi2c1, &huart3);
   /* USER CODE END 2 */
@@ -554,13 +573,13 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-//  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of DCMotor */
   DCMotorHandle = osThreadNew(DCMotor_task, NULL, &DCMotor_attributes);
 
   /* creation of RefreshOLED */
-//  RefreshOLEDHandle = osThreadNew(RefreshOLED_task, NULL, &RefreshOLED_attributes);
+  RefreshOLEDHandle = osThreadNew(RefreshOLED_task, NULL, &RefreshOLED_attributes);
 
   /* creation of EncoderMotorA */
   EncoderMotorAHandle = osThreadNew(EncoderMotorA_task, NULL, &EncoderMotorA_attributes);
@@ -576,6 +595,9 @@ int main(void)
 
   /* creation of IRsensortask */
 //  IRsensortaskHandle = osThreadNew(IRsensor, NULL, &IRsensortask_attributes);
+
+  /* creation of UltrasonicTask */
+  UltrasonicTaskHandle = osThreadNew(Ultrasonic, NULL, &UltrasonicTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -904,6 +926,54 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 16-1;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 0xffff-1;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_IC_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
   * @brief TIM5 Initialization Function
   * @param None
   * @retval None
@@ -1093,6 +1163,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, DIN1_Pin|DIN2_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(TRIG_PIN_GPIO_Port, TRIG_PIN_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : OLED_SCL_Pin OLED_SDA_Pin OLED_RST_Pin OLED_DC_Pin
                            LED3_Pin Gyro_Pin */
   GPIO_InitStruct.Pin = OLED_SCL_Pin|OLED_SDA_Pin|OLED_RST_Pin|OLED_DC_Pin
@@ -1124,15 +1197,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : USER_PB_Pin */
-  GPIO_InitStruct.Pin = USER_PB_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  /*Configure GPIO pin : TRIG_PIN_Pin */
+  GPIO_InitStruct.Pin = TRIG_PIN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(USER_PB_GPIO_Port, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(TRIG_PIN_GPIO_Port, &GPIO_InitStruct);
 
 }
 
@@ -1143,8 +1213,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	UNUSED(huart);
 	cmd = (char) aRxBuffer[0];
 	input = (int)(aRxBuffer[1] - '0')*1000 + (int)((char)aRxBuffer[2] - '0')*100 +
-			(int)(aRxBuffer[3] - '0')*10 + (int)((char)aRxBuffer[4] - '0');
-	targetCount = 0.0;
+							(int)(aRxBuffer[3] - '0')*10 + (int)((char)aRxBuffer[4] - '0');
+
 	if(cmd == 'a' || cmd == 'b')
 	{
 		targetCount = ((input - 35)/207.345) * 1560;
@@ -1158,7 +1228,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		targetAngle = totalAngle - input;
 	}
 	received = 1;
-	HAL_UART_Receive_IT(&huart3, (uint8_t *)aRxBuffer, 5);
+	HAL_UART_Receive_IT(&huart3, (uint8_t *)aRxBuffer, 5);// might need to change to recieve more
 }
 
 /* USER CODE END 4 */
@@ -1176,14 +1246,11 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	  sprintf(oledRow1, "eCnt: %5d", __HAL_TIM_GET_COUNTER(&htim2));
 //	  sprintf(oledRow2, "Rd:%3d Ld:%3d", (int)right_sensor_int, (int)left_sensor_int);
-	  sprintf(oledRow4, "Tang : %5d", (long)totalAngle);
+	  sprintf(oledRow2, "Tang : %5d", (long)totalAngle);
 //	  sprintf(oledRow3, "Rd : %3d", (int)right_sensor_int);
 	  sprintf(oledRow3, "recvd: %d", received);
-	  sprintf(oledRow2, "cnt: %5d", (long)targetCount);
-//	  sprintf(oledRow4, "Sensor: %2.3f", Distance);
-//	  sprintf(oledRow5, "cnt: %5d", (long)targetCount);
+	  sprintf(oledRow4, "Sensor: %4d", Distance);
 	  osDelay(1);
   }
   /* USER CODE END 5 */
@@ -1206,8 +1273,6 @@ void DCMotor_task(void *argument)
 		switch (dir)
 		{
 			case 1:
-//				__HAL_TIM_SET_COUNTER(&htim2, 0);
-//				__HAL_TIM_SET_COUNTER(&htim5, 0);
 				SetPinForward();
 				if(turning == 0)
 					htim1.Instance -> CCR4 = ServoCorrection();
@@ -1234,8 +1299,6 @@ void DCMotor_task(void *argument)
 				break;
 
 			case -1:
-//				__HAL_TIM_SET_COUNTER(&htim2, 0);
-//				__HAL_TIM_SET_COUNTER(&htim5, 0);
 				SetPinReverse();
 				if(turning == 0)
 					htim1.Instance -> CCR4 = ServoCorrection();
@@ -1254,41 +1317,43 @@ void DCMotor_task(void *argument)
 			default:
 				SetPinStop();
 		}
-		// Reverse if sensor detects car is <= 100mm (10cm)
-//		if(cmd == 'a' && right_sensor_int <= 10){
-////			cmd = '-';
-////			sprintf(oledRow4, "Obstacle!");
-////			ResetValues();
-////			TurnStraighten();
-////			targetCount = ((190 - 30)/207.345) * 1560;
-////			turning = 0;
-////			dir = -1;
-////			cmd = '-';
-////			continue;
-//		}
+		 //Reverse if ultrasonic sensor detects car is <= 100mm (10cm)
+		if(cmd == 'a' && Distance <= 30){
+//			cmd = '-';
+//			sprintf(oledRow4, "Obstacle!");
+			ResetValues();
+			TurnStraighten();
+			targetCount = ((40 - 30)/207.345) * 1560; // change input depending on how far it stops
+			turning = 0;
+			dir = -1;
+			cmd = '-';
+			continue;
+		}
 	    if(turning == 1)
 	    {
 		   if((cmd == 'c' || cmd == 'f') && totalAngle >= targetAngle - angleOffset)
 		   {
 			   SetPinStop();
 			   turning = 0;
-			   osDelay(500);
+			   osDelay(100); //500
 			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
 			   ResetValues();
-			   osDelay(500);
-			   targetCount = ((40 - 35)/207.345) * 1560;
-			   dir = -1;
+//			   osDelay(500);
+//			   targetCount = ((40 - 35)/207.345) * 1560;
+//			   dir = -1;
+			   dir = 0;
 		   }
 		   else if((cmd == 'd' || cmd == 'e') && totalAngle <= targetAngle + angleOffset)
 		   {
 			   SetPinStop();
 			   turning = 0;
-			   osDelay(500);
+			   osDelay(100); //500
 			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
 			   ResetValues();
-			   osDelay(500);
-			   targetCount = ((40 - 35)/207.345) * 1560;
-			   dir = -1;
+//			   osDelay(500);
+//			   targetCount = ((40 - 35)/207.345) * 1560;
+//			   dir = -1;
+			   dir = 0;
 		   }
 	    }
 		__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_4, pwmValB);
@@ -1312,7 +1377,7 @@ void RefreshOLED_task(void *argument)
   for(;;)
   {
 //	OLED_ShowString(0,0,oledRow0);
-	OLED_ShowString(0,10,oledRow1);
+//	OLED_ShowString(0,10,oledRow1);
 	OLED_ShowString(0,20,oledRow2);
 	OLED_ShowString(0,30,oledRow3);
 	OLED_ShowString(0,40,oledRow4);
@@ -1457,6 +1522,7 @@ void UART_Command_RX_task(void *argument)
 				  dir = -1;
 				  break;
 			  case 'c': // turn Forward Left
+
 				  TurnFullLeft();
 				  osDelay(100);
 				  turning = 1;
@@ -1489,8 +1555,6 @@ void UART_Command_RX_task(void *argument)
 				  osDelay(10);
 		  }
 	  }
-//	  sprintf(oledRow5, "cnt: %5d\0", (long)targetCount);
-//	  sprintf(oledRow5, "cmd: %s", cmd);
 	  sprintf(oledRow5, "cmd: %s\0", aRxBuffer);
 //	  HAL_Delay(500);
   }
@@ -1542,39 +1606,58 @@ void Gyro(void *argument)
 * @retval None
 */
 /* USER CODE END Header_IRsensor */
-void IRsensor(void *argument)
-{
-  /* USER CODE BEGIN IRsensor */
+//void IRsensor(void *argument)
+//{
+//  /* USER CODE BEGIN IRsensor */
+//
+////	char buffer[100];
+//  /* Infinite loop */
+//  for(;;)
+//  {
+//	  HAL_ADC_Start(&hadc2);
+//	  HAL_ADC_Start(&hadc3);
+//	  HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+//	  HAL_ADC_PollForConversion(&hadc3,HAL_MAX_DELAY);
+//	  left_adc = HAL_ADC_GetValue(&hadc2);
+//	  right_adc = HAL_ADC_GetValue(&hadc3);
+//
+//	  LPF_SUM_right = LPF_SUM_right+right_adc;
+//	  LPF_SUM_left = LPF_SUM_left+left_adc;
+//	  counter++;
+//	  if(counter>=100)
+//	  {
+//	  	right_sensor = LPF_SUM_right/counter;
+//	  	left_sensor = LPF_SUM_left/counter;
+//
+//	  	right_sensor_int = (0.0000074673 *pow(right_sensor,2))-(0.042958* right_sensor)+70.9308;
+//	  	left_sensor_int = (0.0000074673 *pow(left_sensor,2))-(0.042958* left_sensor)+70.9308;
+//
+//	  	LPF_SUM_right = 0;
+//	  	LPF_SUM_left = 0;
+//	  	counter = 0;
+//	  }
+//	  osDelay(1);
+//  }
+//  /* USER CODE END IRsensor */
+//}
 
-//	char buffer[100];
+/* USER CODE BEGIN Header_Ultrasonic */
+/**
+* @brief Function implementing the UltrasonicTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_Ultrasonic */
+void Ultrasonic(void *argument)
+{
+  /* USER CODE BEGIN Ultrasonic */
   /* Infinite loop */
   for(;;)
   {
-	  HAL_ADC_Start(&hadc2);
-	  HAL_ADC_Start(&hadc3);
-	  HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
-	  HAL_ADC_PollForConversion(&hadc3,HAL_MAX_DELAY);
-	  left_adc = HAL_ADC_GetValue(&hadc2);
-	  right_adc = HAL_ADC_GetValue(&hadc3);
-
-	  LPF_SUM_right = LPF_SUM_right+right_adc;
-	  LPF_SUM_left = LPF_SUM_left+left_adc;
-	  counter++;
-	  if(counter>=100)
-	  {
-	  	right_sensor = LPF_SUM_right/counter;
-	  	left_sensor = LPF_SUM_left/counter;
-
-	  	right_sensor_int = (0.0000074673 *pow(right_sensor,2))-(0.042958* right_sensor)+70.9308;
-	  	left_sensor_int = (0.0000074673 *pow(left_sensor,2))-(0.042958* left_sensor)+70.9308;
-
-	  	LPF_SUM_right = 0;
-	  	LPF_SUM_left = 0;
-	  	counter = 0;
-	  }
-	  osDelay(1);
+	HCSR04_Read();
+	HAL_Delay(200);
   }
-  /* USER CODE END IRsensor */
+  /* USER CODE END Ultrasonic */
 }
 
 /**
