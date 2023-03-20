@@ -25,6 +25,7 @@
 #include "oled.h"
 #include "stdlib.h"
 #include <math.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,17 +36,17 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define CNT_ERROR_TOLERANCE 10
-#define PWM_MAX 1500
+//#define PWM_MAX 3000 //1500
 #define SERVO_RIGHT_MAX 230
 #define SERVO_LEFT_MAX 100
 #define SERVO_STRAIGHT 150
 #define INTEGRAL_MAX 1000000
-#define GREATER_TURN_PWM 1500
-#define LESSER_TURN_PWM 1200
+//#define GREATER_TURN_PWM 1500 // 1500
+//#define LESSER_TURN_PWM 1200 //1200
 
 // for ultrasonic sensor
-#define TRIG_PIN GPIO_PIN_13
-#define TRIG_PORT GPIOD
+#define TRIG_PIN Ultrasonic_Trig_Pin
+#define TRIG_PORT Ultrasonic_Trig_GPIO_Port
 
 /* USER CODE END PD */
 
@@ -62,6 +63,7 @@ I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
 TIM_HandleTypeDef htim8;
 
@@ -116,10 +118,10 @@ const osThreadAttr_t Gyrohandle_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
-/* Definitions for IRsensortask */
-osThreadId_t IRsensortaskHandle;
-const osThreadAttr_t IRsensortask_attributes = {
-  .name = "IRsensortask",
+/* Definitions for Ultrasonic */
+osThreadId_t UltrasonicHandle;
+const osThreadAttr_t Ultrasonic_attributes = {
+  .name = "Ultrasonic",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
@@ -138,6 +140,7 @@ static void MX_I2C1_Init(void);
 static void MX_TIM5_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_ADC3_Init(void);
+static void MX_TIM4_Init(void);
 void StartDefaultTask(void *argument);
 void DCMotor_task(void *argument);
 void RefreshOLED_task(void *argument);
@@ -145,7 +148,7 @@ void EncoderMotorA_task(void *argument);
 void EncoderMotorB_task(void *argument);
 void UART_Command_RX_task(void *argument);
 void Gyro(void *argument);
-void IRsensor(void *argument);
+void Ultrasonic_task(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -170,7 +173,6 @@ uint8_t ICMAddr = 0x68;
 uint32_t prevTick;
 int16_t angularSpeed;
 double oldTotalAngle = 0;
-double correction;
 
 char cmd = '-';
 int received = 0;
@@ -190,94 +192,108 @@ int32_t errorAreaB = 0;
 float targetCount = 0.0;
 double targetAngle = 0;
 
-//for IR sensor
-// TODO only one sensor is in use right now.
-uint32_t right_adc;
-uint32_t left_adc;
-double right_sensor;
-double left_sensor;
-uint32_t right_sensor_int;
-uint32_t left_sensor_int;
-uint32_t LPF_SUM_right = 0;
-uint32_t LPF_SUM_left = 0;
-uint32_t counter = 0;
-
-int8_t start = 0;
-int8_t isDone = 0;
+int8_t isIndoor = 0;
+// If user button is not activated, set default values to indoor settings.
+int currPWMSetting = 4000;
+int pwmMax = 4000;
+int greaterTurnPwm = 1500; // 1500
+int lesserTurnPwm = 1200; //1200
 
 void SendFeedBack(int done){
 	if(done == 1){
-		HAL_UART_Transmit(&huart3, "1\n", 2, 0xFFFF);
+		HAL_UART_Transmit(&huart3, "1,0\n", 4, 0xFFFF);
 	}
 	if(done == -1){
-		HAL_UART_Transmit(&huart3, "-1\n", 3, 0xFFFF);
+		HAL_UART_Transmit(&huart3, "-1,0\n", 5, 0xFFFF);
 	}
 }
 
-//void HAL_GPIO_EXTI_Callback( uint16_t GPIO_Pin ) {
-//
-//	if ( GPIO_Pin == USER_PB_Pin) {
-//		// toggle LED
-//		if (start == 0){
-//			HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_10);
-//			start = 1;
-//		}
-//		else
-//			start = 0;
-// 	    }
-//}
+void HAL_GPIO_EXTI_Callback( uint16_t GPIO_Pin ) {
 
-//void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
-//{
-//	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)  // if the interrupt source is channel1
-//	{
-//		if (Is_First_Captured==0) // if the first value is not captured
-//		{
-//			IC_Val1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1); // read the first value
-//			Is_First_Captured = 1;  // set the first captured as true
-//			// Now change the polarity to falling edge
-//			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
-//		}
-//
-//		else if (Is_First_Captured==1)   // if the first is already captured
-//		{
-//			IC_Val2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);  // read second value
-//			__HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter
-//
-//			if (IC_Val2 > IC_Val1)
-//			{
-//				Difference = IC_Val2-IC_Val1;
-//			}
-//
-//			else if (IC_Val1 > IC_Val2)
-//			{
-//				Difference = (0xffff - IC_Val1) + IC_Val2;
-//			}
-//
-//			Distance = Difference * .034/2;
-//			Is_First_Captured = 0; // set it back to false
-//
-//			// set polarity to rising edge
-//			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
-//			__HAL_TIM_DISABLE_IT(&htim4, TIM_IT_CC1);
-//		}
-//	}
-//}
-//
-//void delay (uint16_t time)
-//{
-//	__HAL_TIM_SET_COUNTER(&htim4, 0);
-//	while(__HAL_TIM_GET_COUNTER (&htim4) < time);
-//}
-//
-//void HCSR04_Read (void)
-//{
-//	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
-//	delay(10);  // wait for 10 us
-//	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
-//
-//	__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC1);
-//}
+	// Push user button if test is outdoors
+	// LED light up = indoor, else, outdoors
+	if (GPIO_Pin == USER_PB_Pin) {
+		if (isIndoor == 0) // If Indoor
+		{
+			isIndoor = 1;
+			HAL_GPIO_WritePin(GPIOE, LED3_Pin, GPIO_PIN_RESET);
+			// global variables to set for indoor conditions
+			currPWMSetting = 4000;
+			pwmMax = 4000;
+			greaterTurnPwm = 1500;
+			lesserTurnPwm = 1200;
+		}
+		else // If Outdoor
+		{
+			isIndoor = 0;
+			HAL_GPIO_WritePin(GPIOE, LED3_Pin, GPIO_PIN_SET);
+			// global variables to set for outdoor conditions
+			currPWMSetting = 2500;
+			pwmMax = 2500;
+			greaterTurnPwm = 800;
+			lesserTurnPwm = 500;
+		}
+	}
+}
+
+//for ultrasonic sensor
+uint32_t IC_Val1 = 0;
+uint32_t IC_Val2 = 0;
+uint32_t Difference = 0;
+uint8_t Is_First_Captured = 0;  // is the first value captured ?
+uint16_t Distance = 50;
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)  // if the interrupt source is channel1
+	{
+		if (Is_First_Captured==0) // if the first value is not captured
+		{
+			IC_Val1 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1); // read the first value
+			Is_First_Captured = 1;  // set the first captured as true
+			// Now change the polarity to falling edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
+		}
+
+		else if (Is_First_Captured==1)   // if the first is already captured
+		{
+			IC_Val2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);  // read second value
+			__HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter
+
+			if (IC_Val2 > IC_Val1)
+			{
+				Difference = IC_Val2-IC_Val1;
+			}
+
+			else if (IC_Val1 > IC_Val2)
+			{
+				Difference = (0xffff - IC_Val1) + IC_Val2;
+			}
+
+			Distance = Difference * .034/2;
+			Is_First_Captured = 0; // set it back to false
+
+			// set polarity to rising edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
+			__HAL_TIM_DISABLE_IT(&htim4, TIM_IT_CC1);
+		}
+	}
+}
+
+void delay (uint16_t time)
+{
+	__HAL_TIM_SET_COUNTER(&htim4, 0);
+	while(__HAL_TIM_GET_COUNTER (&htim4) < time);
+}
+
+void HCSR04_Read (void)
+{
+	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+	delay(10);  // wait for 10 us
+	HAL_GPIO_WritePin(TRIG_PORT, TRIG_PIN, GPIO_PIN_RESET);  // pull the TRIG pin low
+
+	__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC1);
+}
 
 void readByte(uint8_t addr, uint8_t* data){
 	buff[0] = addr;
@@ -325,7 +341,6 @@ void gyroInit(){
 	 * htim8 channel 2: PWMB - DC motor B
 	 * htim1 channel 4: Servo motor*/
 
-
 void StartPMWVal(void){
 	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
@@ -357,15 +372,18 @@ void SetPinStop(void){
 void TurnFullLeft(void){
 	turning = 1;
 	htim1.Instance -> CCR4 = SERVO_LEFT_MAX;
+	osDelay(200);
 }
 void TurnFullRight(void){
 	turning = 1;
 	htim1.Instance -> CCR4 = SERVO_RIGHT_MAX;
+	osDelay(200);
 }
 // assume 90 deg.
 void TurnStraighten(void){
 	turning = 1;
 	htim1.Instance -> CCR4 = SERVO_STRAIGHT;
+	osDelay(200);
 }
 
 void ResetValues(void)
@@ -377,7 +395,6 @@ void ResetValues(void)
 	pwmValA = 0;
 	pwmValB = 0;
 	totalAngle = 0;
-//	isDone = 0;
 	__HAL_TIM_SET_COUNTER(&htim2, 0);
 	__HAL_TIM_SET_COUNTER(&htim5, 0);
 }
@@ -409,17 +426,16 @@ int CalcPIDA_Dist(void){
 
 		pwmValA_temp = kp*errorA + kd*errorRate + ki*errorAreaA;
 
-		if(pwmValA_temp > PWM_MAX){
-			pwmValA_temp = PWM_MAX;
+		if(pwmValA_temp > pwmMax){
+			pwmValA_temp = pwmMax;
 		}
-		else if(pwmValA_temp < -PWM_MAX){
-			pwmValA_temp = -PWM_MAX;
+		else if(pwmValA_temp < -pwmMax){
+			pwmValA_temp = -pwmMax;
 		}
 		return pwmValA_temp;
 	}
 	else
 	{
-//		isDone = 1;
 		dir = 0;
 	}
 	return 0;
@@ -451,11 +467,11 @@ int CalcPIDB_Dist(void){
 
 		pwmValB_temp = kp*errorB + kd*errorRate + ki*errorAreaB;
 
-		if(pwmValB_temp > PWM_MAX){
-			pwmValB_temp = PWM_MAX;
+		if(pwmValB_temp > pwmMax){
+			pwmValB_temp = pwmMax;
 		}
-		else if(pwmValB_temp < -PWM_MAX){
-			pwmValB_temp = -PWM_MAX;
+		else if(pwmValB_temp < -pwmMax){
+			pwmValB_temp = -pwmMax;
 		}
 		return pwmValB_temp;
 	}
@@ -467,7 +483,8 @@ int CalcPIDB_Dist(void){
 }
 
 int ServoCorrection(void){
-	int corrMultiplier = 6;
+	double corrMultiplier = 6;
+	double correction = 0.0;
 
 	if(dir == 1)
 		correction = (double)(SERVO_STRAIGHT + totalAngle*corrMultiplier);
@@ -521,6 +538,7 @@ int main(void)
   MX_TIM5_Init();
   MX_ADC2_Init();
   MX_ADC3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
   HAL_UART_Receive_IT(&huart3, (uint8_t *)aRxBuffer, 5);
@@ -528,9 +546,9 @@ int main(void)
   millisOldB = HAL_GetTick();
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   __HAL_TIM_SET_COUNTER(&htim5, 0);
-//  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1); // for ultra sonic sensor
-  HAL_Delay(1000);
-//  IMU_Initialise(&imu, &hi2c1, &huart3);
+  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1); // for ultrasonic sensor
+  HAL_Delay(100);
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -574,8 +592,8 @@ int main(void)
   /* creation of Gyrohandle */
   GyrohandleHandle = osThreadNew(Gyro, NULL, &Gyrohandle_attributes);
 
-  /* creation of IRsensortask */
-//  IRsensortaskHandle = osThreadNew(IRsensor, NULL, &IRsensortask_attributes);
+  /* creation of Ultrasonic */
+  UltrasonicHandle = osThreadNew(Ultrasonic_task, NULL, &Ultrasonic_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -904,6 +922,54 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 16-1;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 0xffff-1;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_IC_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
   * @brief TIM5 Initialization Function
   * @param None
   * @retval None
@@ -1093,6 +1159,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, DIN1_Pin|DIN2_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(Ultrasonic_Trig_GPIO_Port, Ultrasonic_Trig_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : OLED_SCL_Pin OLED_SDA_Pin OLED_RST_Pin OLED_DC_Pin
                            LED3_Pin Gyro_Pin */
   GPIO_InitStruct.Pin = OLED_SCL_Pin|OLED_SDA_Pin|OLED_RST_Pin|OLED_DC_Pin
@@ -1127,8 +1196,15 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : USER_PB_Pin */
   GPIO_InitStruct.Pin = USER_PB_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(USER_PB_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Ultrasonic_Trig_Pin */
+  GPIO_InitStruct.Pin = Ultrasonic_Trig_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(Ultrasonic_Trig_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
@@ -1144,7 +1220,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	cmd = (char) aRxBuffer[0];
 	input = (int)(aRxBuffer[1] - '0')*1000 + (int)((char)aRxBuffer[2] - '0')*100 +
 			(int)(aRxBuffer[3] - '0')*10 + (int)((char)aRxBuffer[4] - '0');
-	targetCount = 0.0;
+
 	if(cmd == 'a' || cmd == 'b')
 	{
 		targetCount = ((input - 35)/207.345) * 1560;
@@ -1158,7 +1234,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		targetAngle = totalAngle - input;
 	}
 	received = 1;
-	HAL_UART_Receive_IT(&huart3, (uint8_t *)aRxBuffer, 5);
+	HAL_UART_Receive_IT(&huart3, (uint8_t *)aRxBuffer, 5);// might need to change to recieve more
 }
 
 /* USER CODE END 4 */
@@ -1176,14 +1252,13 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	  sprintf(oledRow1, "eCnt: %5d", __HAL_TIM_GET_COUNTER(&htim2));
+	  sprintf(oledRow1, "PWM : %5d", pwmMax);
 //	  sprintf(oledRow2, "Rd:%3d Ld:%3d", (int)right_sensor_int, (int)left_sensor_int);
-	  sprintf(oledRow4, "Tang : %5d", (long)totalAngle);
+	  sprintf(oledRow2, "Tang : %5d", (long)totalAngle);
+//	  sprintf(oledRow2, "PWM : %4d",  PWM_MAX);
 //	  sprintf(oledRow3, "Rd : %3d", (int)right_sensor_int);
-	  sprintf(oledRow3, "recvd: %d", received);
-	  sprintf(oledRow2, "cnt: %5d", (long)targetCount);
-//	  sprintf(oledRow4, "Sensor: %2.3f", Distance);
-//	  sprintf(oledRow5, "cnt: %5d", (long)targetCount);
+	  sprintf(oledRow3, "Sensor: %4d", Distance);
+	  sprintf(oledRow4, "ind.: %d", isIndoor);
 	  osDelay(1);
   }
   /* USER CODE END 5 */
@@ -1200,95 +1275,100 @@ void DCMotor_task(void *argument)
 {
   /* USER CODE BEGIN DCMotor_task */
 	StartPMWVal();
-	int angleOffset = 7;
+	int angleOffset = 4;
 	while(1)
 	{
 		switch (dir)
 		{
 			case 1:
-//				__HAL_TIM_SET_COUNTER(&htim2, 0);
-//				__HAL_TIM_SET_COUNTER(&htim5, 0);
 				SetPinForward();
-				if(turning == 0)
+				if(turning == 0){
 					htim1.Instance -> CCR4 = ServoCorrection();
-
+				}
 				else if(turning == 1 && (cmd == 'c' || cmd == 'e'))// left
 				{
-					pwmValA = GREATER_TURN_PWM;
-					pwmValB = LESSER_TURN_PWM;
+					pwmValA = greaterTurnPwm;
+					pwmValB = lesserTurnPwm;
 				}
 				else if(turning == 1 && (cmd == 'd' || cmd == 'f')) // right
 				{
-					pwmValB = GREATER_TURN_PWM;
-					pwmValA = LESSER_TURN_PWM;
+					pwmValB = greaterTurnPwm;
+					pwmValA = lesserTurnPwm;
 				}
 				break;
 
 			case 0:
 				// send completed cmd back to RPi, ready to execute new command
 				SetPinStop();
-				osDelay(1000);
+				pwmMax = currPWMSetting;
+				osDelay(800);
 				SendFeedBack(1);
 				ResetValues();
 				dir = -2; // should go to default
 				break;
 
 			case -1:
-//				__HAL_TIM_SET_COUNTER(&htim2, 0);
-//				__HAL_TIM_SET_COUNTER(&htim5, 0);
 				SetPinReverse();
 				if(turning == 0)
 					htim1.Instance -> CCR4 = ServoCorrection();
 
 				else if(turning == 1 && (cmd == 'c' || cmd == 'e'))// left
 				{
-					pwmValA = GREATER_TURN_PWM;
-					pwmValB = LESSER_TURN_PWM;
+					pwmValA = greaterTurnPwm;
+					pwmValB = lesserTurnPwm;
 				}
 				else if(turning == 1 && (cmd == 'd' || cmd == 'f'))// right
 				{
-					pwmValB = GREATER_TURN_PWM;
-					pwmValA = LESSER_TURN_PWM;
+					pwmValB = greaterTurnPwm;
+					pwmValA = lesserTurnPwm;
 				}
 				break;
+
 			default:
 				SetPinStop();
 		}
-		// Reverse if sensor detects car is <= 100mm (10cm)
-//		if(cmd == 'a' && right_sensor_int <= 10){
-////			cmd = '-';
-////			sprintf(oledRow4, "Obstacle!");
-////			ResetValues();
-////			TurnStraighten();
-////			targetCount = ((190 - 30)/207.345) * 1560;
-////			turning = 0;
-////			dir = -1;
-////			cmd = '-';
-////			continue;
-//		}
+		if(cmd == 'a' && Distance <= 40)
+		{
+			pwmMax = 1000;
+			if(Distance <= 20)
+			{
+				SetPinStop();
+				TurnStraighten();
+				osDelay(200); //500
+				ResetValues();
+				osDelay(200); //500
+				targetCount = (((25 - Distance)*10)/207.345) * 1560; // change input depending on how far it stops
+				turning = 0;
+				cmd = '-';
+				dir = -1;
+				continue;
+			}
+		}
 	    if(turning == 1)
 	    {
 		   if((cmd == 'c' || cmd == 'f') && totalAngle >= targetAngle - angleOffset)
 		   {
 			   SetPinStop();
 			   turning = 0;
-			   osDelay(500);
+			   osDelay(500); //500
 			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
 			   ResetValues();
-			   osDelay(500);
-			   targetCount = ((40 - 35)/207.345) * 1560;
-			   dir = -1;
+//			   osDelay(500);
+//			   targetCount = ((40 - 35)/207.345) * 1560;
+//			   dir = -1;
+			   dir = 0;
 		   }
 		   else if((cmd == 'd' || cmd == 'e') && totalAngle <= targetAngle + angleOffset)
 		   {
 			   SetPinStop();
 			   turning = 0;
-			   osDelay(500);
+			   osDelay(500); //500
 			   htim1.Instance -> CCR4 = SERVO_STRAIGHT;
 			   ResetValues();
-			   osDelay(500);
-			   targetCount = ((40 - 35)/207.345) * 1560;
-			   dir = -1;
+//			   osDelay(500);
+//			   targetCount = ((40 - 35)/207.345) * 1560;
+//			   dir = -1;
+			   dir = 0;
 		   }
 	    }
 		__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_4, pwmValB);
@@ -1428,17 +1508,10 @@ void UART_Command_RX_task(void *argument)
 {
   /* USER CODE BEGIN UART_Command_RX_task */
   /* Infinite loop */
+	int disMeasured = 70;
+	char bufferDis[20];
   for(;;)
   {
-	  /* Do a switch case here to inteprete the different commands
-	   * Idea is to associate different alphabets to different sets of instructions
-	   * i.e: 'a' = go straight
-	   * 	  'b' = reverse,
-	   * 	  'c' = turn fully left
-	   * 	  etc...
-	   * 	  split the operational range of the servo motor into equal intervals
-	   * 	  and associate it (and other actions) with a particular alphabet.*/
-
 	  if(received == 1)
 	  {
 		  received = 0;
@@ -1484,13 +1557,17 @@ void UART_Command_RX_task(void *argument)
 				  TurnStraighten();
 				  dir = 0;
 				  break;
+			  case 'h':
+				  disMeasured += (Distance - 10);
+				  disMeasured = disMeasured * 10;
+				  sprintf(bufferDis, "1,%d\n", disMeasured);
+				  HAL_UART_Transmit(&huart3, bufferDis, strlen(bufferDis)*sizeof(char), 0xFFFF);
+				  osDelay(100);
+				  break;
 			  default:
 				  cmd = '-';
-				  osDelay(10);
 		  }
 	  }
-//	  sprintf(oledRow5, "cnt: %5d\0", (long)targetCount);
-//	  sprintf(oledRow5, "cmd: %s", cmd);
 	  sprintf(oledRow5, "cmd: %s\0", aRxBuffer);
 //	  HAL_Delay(500);
   }
@@ -1535,46 +1612,24 @@ void Gyro(void *argument)
   /* USER CODE END Gyro */
 }
 
-/* USER CODE BEGIN Header_IRsensor */
+/* USER CODE BEGIN Header_Ultrasonic_task */
 /**
-* @brief Function implementing the IRsensortask thread.
+* @brief Function implementing the Ultrasonic thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_IRsensor */
-void IRsensor(void *argument)
+/* USER CODE END Header_Ultrasonic_task */
+void Ultrasonic_task(void *argument)
 {
-  /* USER CODE BEGIN IRsensor */
-
-//	char buffer[100];
+  /* USER CODE BEGIN Ultrasonic_task */
   /* Infinite loop */
   for(;;)
   {
-	  HAL_ADC_Start(&hadc2);
-	  HAL_ADC_Start(&hadc3);
-	  HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
-	  HAL_ADC_PollForConversion(&hadc3,HAL_MAX_DELAY);
-	  left_adc = HAL_ADC_GetValue(&hadc2);
-	  right_adc = HAL_ADC_GetValue(&hadc3);
-
-	  LPF_SUM_right = LPF_SUM_right+right_adc;
-	  LPF_SUM_left = LPF_SUM_left+left_adc;
-	  counter++;
-	  if(counter>=100)
-	  {
-	  	right_sensor = LPF_SUM_right/counter;
-	  	left_sensor = LPF_SUM_left/counter;
-
-	  	right_sensor_int = (0.0000074673 *pow(right_sensor,2))-(0.042958* right_sensor)+70.9308;
-	  	left_sensor_int = (0.0000074673 *pow(left_sensor,2))-(0.042958* left_sensor)+70.9308;
-
-	  	LPF_SUM_right = 0;
-	  	LPF_SUM_left = 0;
-	  	counter = 0;
-	  }
-	  osDelay(1);
+	  // Activate ultrasonic only when moving forward
+	  HCSR04_Read();
+	  osDelay(200);
   }
-  /* USER CODE END IRsensor */
+  /* USER CODE END Ultrasonic_task */
 }
 
 /**
